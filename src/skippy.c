@@ -2268,7 +2268,8 @@ mainloop(session_t *ps, bool activate_on_start) {
 			else if (mw && ev.type == DestroyNotify) {
 				printfdf(false, "(): else if (ev.type == DestroyNotify) {");
 				count_and_filter_clients(ps->mainwin);
-				if (!mw->clientondesktop) {
+				// Workspace selection is independent of surviving application windows.
+				if (ps->o.mode != PROGMODE_PAGING && !mw->clientondesktop) {
 					printfdf(false, "(): Last client window destroyed/unmapped, "
 							"exiting.");
 					die = true;

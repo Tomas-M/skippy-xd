@@ -72,10 +72,36 @@ with tempfile.TemporaryDirectory(prefix='skippy-paging-') as directory:
     xlib.XDestroyWindow.argtypes=[ctypes.c_void_p,ctypes.c_ulong]
     xlib.XSync.argtypes=[ctypes.c_void_p,ctypes.c_int]
     xlib.XCloseDisplay.argtypes=[ctypes.c_void_p]
+    # Observe MapNotify so even a brief empty-switcher flash fails the test.
+    class MapEvent(ctypes.Structure):
+        _fields_=[('type',ctypes.c_int),('serial',ctypes.c_ulong),('send_event',ctypes.c_int),('display',ctypes.c_void_p),('event',ctypes.c_ulong),('window',ctypes.c_ulong),('override_redirect',ctypes.c_int)]
+    class Event(ctypes.Union):
+        _fields_=[('mapped',MapEvent),('pad',ctypes.c_long*24)]
+    xlib.XSelectInput.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.c_long]
+    xlib.XPending.argtypes=[ctypes.c_void_p]; xlib.XPending.restype=ctypes.c_int
+    xlib.XNextEvent.argtypes=[ctypes.c_void_p,ctypes.POINTER(Event)]
+    observer=xlib.XOpenDisplay(env['DISPLAY'].encode())
+    xlib.XSelectInput(observer,xlib.XDefaultRootWindow(observer),1<<19)
+    xlib.XSync(observer,False)
     try:
         time.sleep(.3)
         daemon=subprocess.Popen([skippy,'--start-daemon','--config',str(profile),'--debug-log'],env=env,stdout=log,stderr=log)
         time.sleep(.3)
+        fullscreen=int(subprocess.check_output(['xdotool','search','--name','^skippy-xd fullscreen window$'],env=env,text=True).splitlines()[0])
+        key('Alt_L')
+        subprocess.run(['xdotool','keydown','Alt_L'],env=env,check=True)
+        request=subprocess.Popen([skippy,'--switch','--next'],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        children.append(request)
+        time.sleep(.6)
+        xlib.XSync(observer,False)
+        while xlib.XPending(observer):
+            event=Event(); xlib.XNextEvent(observer,ctypes.byref(event))
+            assert event.mapped.type!=19 or event.mapped.window!=fullscreen,'Empty Alt+Tab mapped the switcher'
+        request.wait(timeout=5)
+        subprocess.run(['xdotool','keyup','Alt_L'],env=env,check=True)
+        assert not visible('^skippy-xd fullscreen window$'),'Empty Alt+Tab stayed visible'
+        print('PASS: empty Alt+Tab never maps a window and completes its IPC request',flush=True)
+
         for attempt in range(3):
             cancel_launcher()
             request=overview('--paging')
@@ -101,6 +127,7 @@ with tempfile.TemporaryDirectory(prefix='skippy-paging-') as directory:
         client.terminate(); client.wait(timeout=5)
         print('PASS: expose cancellation still works',flush=True)
     finally:
+        xlib.XCloseDisplay(observer)
         for process in [*children,daemon,wm,server]:
             if process is not None and process.poll() is None:
                 process.terminate(); process.wait(timeout=5)

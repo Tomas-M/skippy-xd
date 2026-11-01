@@ -1856,6 +1856,10 @@ mainloop(session_t *ps, bool activate_on_start) {
 			pending_damage = false;
 			first_animated = time_in_millis();
 			first_animating = true;
+			// Finish empty application switching before mapping; desktop cycling has other targets.
+			if (ps->o.mode == PROGMODE_SWITCH && !mw->clientondesktop
+					&& !ps->o.switchCycleDesktops)
+				die = true;
 		}
 		if (mw)
 			activate = false;

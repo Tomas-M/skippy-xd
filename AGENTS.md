@@ -7,3 +7,5 @@ Labels use PangoXft. Font configuration uses Pango descriptions with ordered, co
 Top and bottom application captions belong to the thumbnail frame. Include their fixed screen-pixel height in every layout and keep source image transforms independent of the caption surface. Middle-position application labels retain their floating placement. Workspace labels overlay the inside of each desktop preview and use [desktop-label] padding, margin and radius in screen pixels. Keep their Pango layouts and rounded masks cached. Application headers have two extra pixels above and below the previous line insets.
 
 Paging must remain open on empty desktops when application, launcher or hidden support windows are destroyed. Only expose/switch modes may close when their last application disappears.
+
+With desktop cycling disabled, Alt+Tab on an empty application list must complete its IPC request without ever mapping the switcher window. Empty paging must still be available.

@@ -28,7 +28,7 @@ struct _Tooltip {
 	
 	unsigned int width, height;
 	
-	Window window;
+	Window window, parent;
 	bool mapped;
 	PangoLayout *layout;
 	XftDraw *draw;
@@ -44,5 +44,6 @@ void tooltip_map(Tooltip *tt, ClientWin *cw,
 void tooltip_unmap(Tooltip *);
 void tooltip_draw(Tooltip *, bool);
 void tooltip_move(Tooltip *tt, ClientWin *cw);
+int tooltip_caption_height(ClientWin *cw, float scale);
 
 #endif /* SKIPPY_TOOLTIP_H */

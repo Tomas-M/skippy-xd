@@ -157,7 +157,8 @@ backgroundTinting = true
 # show = all/focused/none
 # option = windowClass to display window class
 # option = windowTitle to display window title
-# position = top, mid or bottom: vertical position of the label
+# Top/bottom application labels are part of the tile; mid overlays the preview.
+# Paging labels remain floating and retain their offsets.
 [label]
 show = all
 option = windowClass
@@ -165,6 +166,7 @@ position = bottom
 # align = left, mid or right; iconSize = 0 disables the application icon
 align = mid
 iconSize = 0
+# Offsets apply to floating labels only.
 offsetX = 0
 offsetY = -5
 # Maximum width of the complete label relative to its preview

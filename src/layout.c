@@ -39,13 +39,21 @@ static void layout_cosmos(dlist *windows,
 
 void
 layout_run(MainWin *mw, dlist *windows,
-		MonitorCoord monitor, enum layoutmode layout,
+		MonitorCoord monitor, enum layoutmode layout, float caption_scale,
 		unsigned int *total_width, unsigned int *total_height)
 {
 	if (!windows) return;
+	foreach_dlist (windows) {
+		ClientWin *cw = iter->data;
+		cw->caption_target = tooltip_caption_height(cw, caption_scale);
+		cw->layout_height = cw->src.height + ceilf(cw->caption_target / caption_scale);
+	}
 	if (layout == LAYOUT_COSMOS) {
 		foreach_dlist (dlist_first(windows)) {
 			ClientWin *cw = iter->data;
+
+			cw->x = cw->src.x;
+			cw->y = cw->src.y;
 
 			// virtual desktop offset
 			{
@@ -65,12 +73,10 @@ layout_run(MainWin *mw, dlist *windows,
 				int current_desktop_x = current_desktop % desktop_dim;
 				int current_desktop_y = current_desktop / desktop_dim;
 
-				cw->src.x += (win_desktop_x - current_desktop_x) * (monitor.width + mw->distance);
-				cw->src.y += (win_desktop_y - current_desktop_y) * (monitor.height + mw->distance);
+				cw->x += (win_desktop_x - current_desktop_x) * (monitor.width + mw->distance);
+				cw->y += (win_desktop_y - current_desktop_y) * (monitor.height + mw->distance);
 			}
 
-			cw->x = cw->src.x;
-			cw->y = cw->src.y;
 		}
 
 		dlist *sorted_windows = dlist_dup(windows);
@@ -108,7 +114,7 @@ layout_xd(dlist *windows,
 	foreach_dlist (windows) {
 		ClientWin *cw = (ClientWin *) iter->data;
 		sum_w += cw->src.width;
-		max_h = MAX(max_h, cw->src.height);
+		max_h = MAX(max_h, cw->layout_height);
 	}
 
 	// Vertical layout
@@ -123,11 +129,11 @@ layout_xd(dlist *windows,
 			int slot_h = - distance;
 			foreach_dlist_vn(slot_cw_iter, slot) {
 				ClientWin *slot_cw = (ClientWin *) slot_cw_iter->data;
-				slot_h = slot_h + slot_cw->src.height + distance;
+				slot_h = slot_h + slot_cw->layout_height + distance;
 			}
 			// Add window to slot if the slot height after adding the window
 			// doesn't exceed max window height
-			if (slot_h + distance + cw->src.height < max_h) {
+			if (slot_h + distance + cw->layout_height < max_h) {
 				slot_iter->data = dlist_add(slot, cw);
 				break;
 			}
@@ -154,7 +160,7 @@ layout_xd(dlist *windows,
 				ClientWin *cw = (ClientWin *) slot_cw_iter->data;
 				cw->x = x + (slot_max_w - cw->src.width) / 2;
 				cw->y = y;
-				y += cw->src.height + distance;
+				y += cw->layout_height + distance;
 				rows->data = dlist_add(rows->data, cw);
 			}
 			row_h = MAX(row_h, y - row_y);
@@ -209,7 +215,7 @@ window_extents(ClientWin **windows, size_t count,
 				windows[i]->x + windows[i]->src.width);
 		*min_y = MIN(*min_y, windows[i]->y);
 		*max_y = MAX(*max_y,
-				windows[i]->y + windows[i]->src.height);
+				windows[i]->y + windows[i]->layout_height);
 	}
 }
 
@@ -217,14 +223,14 @@ static void
 window_center(const ClientWin *window, float *center_x, float *center_y)
 {
 	*center_x = window->x + window->src.width / 2.0f;
-	*center_y = window->y + window->src.height / 2.0f;
+	*center_y = window->y + window->layout_height / 2.0f;
 }
 
 static void
 set_window_center(ClientWin *window, float center_x, float center_y)
 {
 	window->x = (int) lroundf(center_x - window->src.width / 2.0f);
-	window->y = (int) lroundf(center_y - window->src.height / 2.0f);
+	window->y = (int) lroundf(center_y - window->layout_height / 2.0f);
 }
 
 static void
@@ -317,7 +323,7 @@ run_scatter(ClientWin **windows, size_t count,
 			center_x_sum += x;
 			center_y_sum += y;
 			max_width = MAX(max_width, windows[i]->src.width);
-			max_height = MAX(max_height, windows[i]->src.height);
+			max_height = MAX(max_height, windows[i]->layout_height);
 			member_count++;
 		}
 
@@ -371,7 +377,7 @@ run_scatter(ClientWin **windows, size_t count,
 			float required_y = MAX(
 				center_half_y + threshold_y + padding,
 				center_half_y
-					+ (max_height + windows[i]->src.height) / 2.0f
+					+ (max_height + windows[i]->layout_height) / 2.0f
 					+ padding + clearance);
 			float scale_for_x = distance_x > 0
 				? required_x / distance_x : INFINITY;
@@ -470,8 +476,8 @@ run_contraction(AabbWorld *world, ClientWin **windows, size_t count,
 			windows[i]->fy = y;
 			min_x = fminf(min_x, x - windows[i]->src.width / 2.0f);
 			max_x = fmaxf(max_x, x + windows[i]->src.width / 2.0f);
-			min_y = fminf(min_y, y - windows[i]->src.height / 2.0f);
-			max_y = fmaxf(max_y, y + windows[i]->src.height / 2.0f);
+			min_y = fminf(min_y, y - windows[i]->layout_height / 2.0f);
+			max_y = fmaxf(max_y, y + windows[i]->layout_height / 2.0f);
 		}
 
 		float span_center_x = (min_x + max_x) / 2.0f;
@@ -543,7 +549,7 @@ run_contraction(AabbWorld *world, ClientWin **windows, size_t count,
 			float available_x = half_span_x
 					- windows[i]->src.width / 2.0f;
 			float available_y = half_span_y
-					- windows[i]->src.height / 2.0f;
+					- windows[i]->layout_height / 2.0f;
 			float position_x = available_x > 0
 					? (windows[i]->fx - span_center_x) / available_x
 					: 1.0f;
@@ -654,9 +660,9 @@ layout_cosmos(dlist *windows,
 	for (size_t i = 0; i < count; i++) {
 		AabbBodyDef definition = {
 			.center_x = items[i]->x + items[i]->src.width / 2.0f,
-			.center_y = items[i]->y + items[i]->src.height / 2.0f,
+			.center_y = items[i]->y + items[i]->layout_height / 2.0f,
 			.width = items[i]->src.width,
-			.height = items[i]->src.height
+			.height = items[i]->layout_height
 		};
 
 		if (aabb_world_add_body(world, &definition) == AABB_BODY_INVALID) {
@@ -682,7 +688,7 @@ layout_cosmos(dlist *windows,
 		aabb_body_get_position(world, (AabbBodyId) i, &center_x, &center_y);
 
 		items[i]->x = (int) lroundf(center_x - items[i]->src.width / 2.0f);
-		items[i]->y = (int) lroundf(center_y - items[i]->src.height / 2.0f);
+		items[i]->y = (int) lroundf(center_y - items[i]->layout_height / 2.0f);
 	}
 
 	window_extents(items, count, &min_x, &max_x, &min_y, &max_y);

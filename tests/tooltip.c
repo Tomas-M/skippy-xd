@@ -172,13 +172,48 @@ int main(void)
 	cw.mode = CLIDISP_THUMBNAIL;
 	cw.mini.width = 20;
 	tooltip_map(tt, &cw, (const FcChar8 *)plain, strlen(plain));
-	assert(!tt->mapped && !pango_layout_get_text(tt->layout)[0]);
+	assert(!tt->mapped && !strcmp(pango_layout_get_text(tt->layout), plain));
 	free_pictw(&ps, &cw.label_icon);
 	puts("Caption width, icon pixels, alignment and desktop-label checks passed.");
+
+	// An integrated header is a full-width child of the tile with no inner border.
+	cw.tooltip = tt;
+	cw.paneltype = WINTYPE_WINDOW;
+	cw.src.width = 400;
+	cw.mini.width = 160;
+	cw.mini.window = XCreateSimpleWindow(ps.dpy, ps.root, 100, 200, 160, 180, 0, 0, 0);
+	XMapWindow(ps.dpy, cw.mini.window);
+	cw.caption_height = tooltip_caption_height(&cw, 0.4f);
+	assert(cw.caption_height == tt->height && cw.caption_height > 16);
+	assert(!tooltip_caption_height(&cw, 0.01f));
+	for (int position = ALIGN_LEFT; position <= ALIGN_RIGHT; position += 2) {
+		ps.o.tooltip_position = position;
+		tooltip_map(tt, &cw, (const FcChar8 *)"Short", 5);
+		tooltip_draw(tt, true);
+		Window root, parent, *children;
+		unsigned int count;
+		XQueryTree(ps.dpy, tt->window, &root, &parent, &children, &count);
+		XFree(children);
+		assert(parent == cw.mini.window);
+		XGetWindowAttributes(ps.dpy, tt->window, &attrs);
+		assert(attrs.x == 0 && attrs.width == cw.mini.width);
+		assert(attrs.height == cw.caption_height);
+		assert(attrs.y == (position == ALIGN_LEFT ? 0 : clientwin_preview_height(&cw)));
+		pixel = XGetImage(ps.dpy, tt->window, 0, 0, 1, 1, AllPlanes, ZPixmap);
+		assert(pixel && XGetPixel(pixel, 0, 0) == tt->backgroundHighlight.pixel);
+		XDestroyImage(pixel);
+	}
+	ps.o.mode = PROGMODE_PAGING;
+	assert(!tooltip_caption_height(&cw, 1));
+	ps.o.mode = PROGMODE_SWITCH;
+	ps.o.tooltip_position = ALIGN_MID;
+	assert(!tooltip_caption_height(&cw, 1));
+	puts("Integrated top/bottom header geometry and shared-frame checks passed.");
 
 	tooltip_unmap(tt);
 	assert(!tt->mapped && !pango_layout_get_text(tt->layout)[0]);
 	tooltip_destroy(tt);
+	XDestroyWindow(ps.dpy, cw.mini.window);
 	pango_xft_shutdown_display(ps.dpy, ps.screen);
 	XCloseDisplay(ps.dpy);
 	puts("Tooltip UTF-8, RTL, resizing, layout cache and lifecycle checks passed.");

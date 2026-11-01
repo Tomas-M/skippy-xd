@@ -284,6 +284,9 @@ clientwin_create(MainWin *mw, Window client) {
 	}
 	if (!cw->mini.window)
 		goto clientwin_create_err;
+	// Child image and caption surfaces share the parent's frame and input area.
+	cw->content_window = XCreateWindow(ps->dpy, cw->mini.window, 0, 0, 1, 1, 0,
+			mw->depth, InputOutput, mw->visual, 0, NULL);
 
 	{
 		static const char *PREFIX = "skippy-xd preview window ";
@@ -615,7 +618,7 @@ clientwin_repaint(ClientWin *cw, const XRectangle *pbound)
 	MainWin *mw = cw->mainwin;
 	session_t *ps = mw->ps;
 	Picture source = None;
-	int s_x = 0, s_y = 0, s_w = cw->mini.width, s_h = cw->mini.height;
+	int s_x = 0, s_y = 0, s_w = cw->mini.width, s_h = clientwin_preview_height(cw);
 	if (pbound) {
 		s_x = pbound->x;
 		s_y = pbound->y;
@@ -709,11 +712,11 @@ clientwin_repaint(ClientWin *cw, const XRectangle *pbound)
 			assert(cw->icon_pict && cw->icon_pict->pict);
 			img_composite_params_t params = IMG_COMPOSITE_PARAMS_INIT;
 			simg_get_composite_params(cw->icon_pict,
-					cw->mini.width, cw->mini.height,
+					cw->mini.width, clientwin_preview_height(cw),
 					ps->o.iconSpec.mode, ps->o.iconSpec.alg, ps->o.iconSpec.valg,
 					&params);
 			simg_composite(ps, cw->icon_pict, cw->destination,
-					cw->mini.width, cw->mini.height, &params, NULL, mask, pbound);
+					cw->mini.width, clientwin_preview_height(cw), &params, NULL, mask, pbound);
 		}
 	}
 
@@ -752,13 +755,13 @@ clientwin_repaint(ClientWin *cw, const XRectangle *pbound)
 								cw->destination, tint,
 								s_x, s_y, s_w, s_h, ps->o.cornerRadius * mw->multiplier[mw->active_monitor]);
 
-						XClearArea(mw->ps->dpy, cw->mini.window, s_x, s_y, s_w, s_h, False);
+						XClearArea(mw->ps->dpy, clientwin_picture_window(cw), s_x, s_y, s_w, s_h, False);
 					}
 				}
 				else {
 					XRenderFillRectangle(mw->ps->dpy, PictOpOver,
 							cw->destination, tint, s_x, s_y, s_w, s_h);
-					XClearArea(mw->ps->dpy, cw->mini.window, s_x, s_y, s_w, s_h, False);
+					XClearArea(mw->ps->dpy, clientwin_picture_window(cw), s_x, s_y, s_w, s_h, False);
 				}
 			}
 		}
@@ -767,7 +770,7 @@ clientwin_repaint(ClientWin *cw, const XRectangle *pbound)
 			tooltip_draw(cw->tooltip, ps->o.multiselect? cw->multiselect: cw->focused);
 	}
 
-	XClearArea(mw->ps->dpy, cw->mini.window, s_x, s_y, s_w, s_h, False);
+	XClearArea(mw->ps->dpy, clientwin_picture_window(cw), s_x, s_y, s_w, s_h, False);
 }
 
 void
@@ -901,8 +904,9 @@ void clientwin_prepmove(ClientWin *cw)
 
 	cw->pixmap = XCreatePixmap(cw->mainwin->ps->dpy, cw->mini.window,
 			width, height, cw->mainwin->depth);
+	XSetWindowBackgroundPixmap(cw->mainwin->ps->dpy, cw->content_window, cw->pixmap);
 	XSetWindowBackgroundPixmap(cw->mainwin->ps->dpy,
-			cw->mini.window, cw->pixmap);
+			cw->mini.window, cw->caption_height ? None : cw->pixmap);
 
 	cw->destination = XRenderCreatePicture(cw->mainwin->ps->dpy,
 			cw->pixmap, cw->mini.format, 0, 0);
@@ -921,7 +925,8 @@ clientwin_move(ClientWin *cw, float f, int x, int y, float timeslice)
 
 	cw->factor = f;
 	cw->mini.width = cw->src.width * f;
-	cw->mini.height = cw->src.height * f;
+	cw->caption_height = lroundf(cw->caption_target * timeslice);
+	cw->mini.height = MAX(1, (int)(cw->src.height * f)) + cw->caption_height;
 
 	int leftborder = ps->o.leftFrameBorder, topborder = ps->o.topFrameBorder;
 	if (wm_get_fullscreen(ps, cw->src.window))
@@ -933,6 +938,17 @@ clientwin_move(ClientWin *cw, float f, int x, int y, float timeslice)
 			cw->mini.x, cw->mini.y,
 			cw->mini.width, cw->mini.height);
 
+	if (cw->caption_height) {
+		int content_y = ps->o.tooltip_position == ALIGN_LEFT ? cw->caption_height : 0;
+		XSetWindowBackgroundPixmap(ps->dpy, cw->mini.window, None);
+		XMoveResizeWindow(ps->dpy, cw->content_window, 0, content_y,
+				cw->mini.width, clientwin_preview_height(cw));
+		XMapWindow(ps->dpy, cw->content_window);
+	}
+	else {
+		XUnmapWindow(ps->dpy, cw->content_window);
+		XSetWindowBackgroundPixmap(ps->dpy, cw->mini.window, cw->pixmap);
+	}
 	if (cw->paneltype == WINTYPE_WINDOW)
 		clientwin_round_corners(cw);
 }
@@ -990,6 +1006,7 @@ clientwin_unmap(ClientWin *cw) {
 
 	XUnmapWindow(ps->dpy, cw->mini.window);
 	XSetWindowBackgroundPixmap(ps->dpy, cw->mini.window, None);
+	XSetWindowBackgroundPixmap(ps->dpy, cw->content_window, None);
 	cw->mapped = false;
 
 	cw->focused = false;
@@ -1058,7 +1075,7 @@ clientwin_tooltip(ClientWin *cw) {
 		}
 	}
 
-	tooltip_draw(cw->tooltip, ps->o.multiselect? cw->multiselect: cw->focused);
+	if (cw->mapped) tooltip_draw(cw->tooltip, ps->o.multiselect? cw->multiselect: cw->focused);
 }
 
 void

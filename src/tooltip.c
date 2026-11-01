@@ -65,6 +65,7 @@ tooltip_create(MainWin *mw) {
 	tt->mainwin = mw;
 	tt->client = NULL;
 	tt->window = None;
+	tt->parent = ps->o.pseudoTrans ? mw->window : ps->root;
 	tt->mapped = false;
 	tt->width = tt->height = 0;
 	tt->layout = NULL;
@@ -81,7 +82,7 @@ tooltip_create(MainWin *mw) {
 		};
 		
 		tt->window = XCreateWindow(ps->dpy,
-				ps->o.pseudoTrans ? mw->window : ps->root,
+				tt->parent,
 				0, 0, 1, 1, 0,
 				mw->depth, InputOutput, mw->visual,
 				CWBorderPixel|CWBackPixel|CWOverrideRedirect|CWEventMask|CWColormap,
@@ -183,50 +184,70 @@ tooltip_icon(Tooltip *tt)
 	return tt->client->label_icon;
 }
 
-// Reuse the shaped layout until the full title or available width changes.
-void
-tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
+// Reserve a stable line for all tiles, including labels shown only on focus.
+int
+tooltip_caption_height(ClientWin *cw, float scale)
 {
-	session_t * const ps = tt->mainwin->ps;
-	tt->client = cw;
-	pictw_t *icon = tooltip_icon(tt);
-	int icon_width = icon ? icon->width + 6 : 0;
-	int available = cw->mini.width * ps->o.tooltip_width;
-	int text_width = available - 8 - icon_width;
-	if (text_width < 1) {
-		tooltip_unmap(tt);
-		return;
-	}
-	// Broken UTF8_STRING properties must not warn or invalidate the layout on each draw.
+	session_t *ps = cw->mainwin->ps;
+	if (!cw->tooltip || !ps->o.tooltip_show || ps->o.mode == PROGMODE_PAGING)
+		return 0;
+	if (cw->paneltype != WINTYPE_WINDOW || ps->o.tooltip_position == ALIGN_MID)
+		return 0;
+	int minimum = 9 + (cw->label_icon ? cw->label_icon->width + 6 : 0);
+	return cw->src.width * scale >= minimum ? cw->tooltip->height : 0;
+}
+
+static void tooltip_set_visible(Tooltip *tt, bool visible);
+
+// Normalize and measure the full title before choosing a scale for the tiles.
+static bool
+tooltip_set_text(Tooltip *tt, const FcChar8 *text, int len)
+{
 	char *valid = NULL;
 	if (!g_utf8_validate((const char *)text, len, NULL)) {
 		valid = g_utf8_make_valid((const char *)text, len);
 		text = (const FcChar8 *)valid;
 		len = strlen(valid);
 	}
-	int max_width = text_width * PANGO_SCALE;
 	const char *previous = pango_layout_get_text(tt->layout);
 	bool changed = strlen(previous) != (size_t)len || memcmp(previous, text, len);
-	if (changed || pango_layout_get_width(tt->layout) != max_width) {
+	if (changed) {
 		pango_layout_set_text(tt->layout, (const char *)text, len);
+		pango_layout_set_width(tt->layout, -1);
+		PangoRectangle ink, logical;
+		pango_layout_get_pixel_extents(tt->layout, &ink, &logical);
+		int height = MAX(ink.y + ink.height, logical.y + logical.height) - MIN(ink.y, logical.y);
+		tt->height = MAX(height, tt->mainwin->ps->o.tooltip_iconSize) + 5;
+	}
+	g_free(valid);
+	return changed;
+}
+
+// Reuse the shaped layout until the full title or available width changes.
+void
+tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
+{
+	tt->client = cw;
+	bool changed = tooltip_set_text(tt, text, len);
+	pictw_t *icon = tooltip_icon(tt);
+	int icon_width = icon ? icon->width + 6 : 0;
+	int available = cw->mini.width * tt->mainwin->ps->o.tooltip_width;
+	int text_width = available - 8 - icon_width;
+	if (text_width < 1) {
+		tooltip_set_visible(tt, false);
+		return;
+	}
+	int max_width = text_width * PANGO_SCALE;
+	if (changed || pango_layout_get_width(tt->layout) != max_width) {
 		pango_layout_set_width(tt->layout, max_width);
 		PangoRectangle ink, logical;
 		pango_layout_get_pixel_extents(tt->layout, &ink, &logical);
-		// Include overhangs and combining marks as well as the logical line box.
 		tt->extents.x = MIN(ink.x, logical.x);
 		tt->extents.y = MIN(ink.y, logical.y);
 		tt->extents.width = MAX(ink.x + ink.width, logical.x + logical.width) - tt->extents.x;
 		tt->extents.height = MAX(ink.y + ink.height, logical.y + logical.height) - tt->extents.y;
 	}
-	// The icon, spacing, padding and text must all fit inside the preview width.
-	unsigned int width = MIN(available, tt->extents.width + icon_width + 8);
-	unsigned int height = MAX(tt->extents.height, icon ? icon->height : 0) + 5;
-	if (tt->width != width || tt->height != height) {
-		tt->width = width;
-		tt->height = height;
-		XResizeWindow(ps->dpy, tt->window, width, height);
-	}
-	g_free(valid);
+	tt->width = MIN(available, tt->extents.width + icon_width + 8);
 	tooltip_move(tt, cw);
 }
 
@@ -234,30 +255,32 @@ void
 tooltip_move(Tooltip *tt, ClientWin *cw) {
 
 	session_t *ps = tt->mainwin->ps;
-	int x = ps->o.tooltip_offsetX,
-		y = ps->o.tooltip_offsetY;
-
-	x += cw->mini.x;
-	if (ps->o.tooltip_align == ALIGN_MID)
-		x += ((int)cw->mini.width - (int)tt->width) / 2;
-	else if (ps->o.tooltip_align == ALIGN_RIGHT)
-		x += (int)cw->mini.width - (int)tt->width;
-	switch (ps->o.tooltip_position) {
-		case ALIGN_LEFT:	// top: label sits above the window
-			y += cw->mini.y - tt->height;
-			break;
-		case ALIGN_MID:		// mid: label in the middle of the window
-			y += cw->mini.y + cw->mini.height/2 - tt->height / 2;
-			break;
-		default:			// bottom (default): label below the window
-			y += cw->mini.y + cw->mini.height;
-			break;
+	bool integrated = cw->caption_height > 0;
+	Window parent = integrated ? cw->mini.window : (ps->o.pseudoTrans ? tt->mainwin->window : ps->root);
+	if (tt->parent != parent) {
+		tooltip_set_visible(tt, false);
+		XReparentWindow(ps->dpy, tt->window, parent, 0, 0);
+		tt->parent = parent;
 	}
-
-	x = MIN(MAX(0, x), tt->mainwin->x + tt->mainwin->width - tt->width);
-	y = MIN(MAX(0, y), tt->mainwin->y + tt->mainwin->height - tt->height);
-	
-	XMoveWindow(tt->mainwin->ps->dpy, tt->window, x, y);
+	int x = 0, y = 0;
+	int width = tt->width, height = tt->height;
+	if (integrated) {
+		width = cw->mini.width;
+		height = cw->caption_height;
+		if (ps->o.tooltip_position == ALIGN_RIGHT) y = clientwin_preview_height(cw);
+	}
+	else {
+		x = cw->mini.x + ps->o.tooltip_offsetX;
+		if (ps->o.tooltip_align == ALIGN_MID) x += ((int)cw->mini.width - width) / 2;
+		else if (ps->o.tooltip_align == ALIGN_RIGHT) x += (int)cw->mini.width - width;
+		y = cw->mini.y + ps->o.tooltip_offsetY;
+		if (ps->o.tooltip_position == ALIGN_LEFT) y -= height;
+		else if (ps->o.tooltip_position == ALIGN_MID) y += ((int)cw->mini.height - height) / 2;
+		else y += cw->mini.height;
+		x = MIN(MAX(0, x), tt->mainwin->x + tt->mainwin->width - width);
+		y = MIN(MAX(0, y), tt->mainwin->y + tt->mainwin->height - height);
+	}
+	XMoveResizeWindow(ps->dpy, tt->window, x, y, MAX(1, width), MAX(1, height));
 }
 
 // Map or unmap the label window, only when its state actually changes.
@@ -292,26 +315,32 @@ tooltip_draw(Tooltip *tt, bool focused)
 	// label/show decides whether this label is shown at all
 	bool visible = tt->mainwin->ps->o.tooltip_show == TOOLTIP_SHOW_ALL
 		|| (tt->mainwin->ps->o.tooltip_show == TOOLTIP_SHOW_FOCUSED && focused);
-	tooltip_set_visible(tt, visible);
-	if (!visible)
-		return;
+	bool integrated = tt->client && tt->client->caption_height > 0;
+	if (tt->client) tooltip_move(tt, (ClientWin *)tt->client);
+	tooltip_set_visible(tt, visible || integrated);
+	if (!visible && !integrated) return;
+	int width = integrated ? tt->client->mini.width : tt->width;
 
-	XftDrawRect(tt->draw, &tt->border, 0, 0, tt->width, 1);
-	XftDrawRect(tt->draw, &tt->border, 0, 1, 1, tt->height - 2);
-	XftDrawRect(tt->draw, &tt->border, 0, tt->height - 1, tt->width, 1);
-	XftDrawRect(tt->draw, &tt->border, tt->width - 1, 1, 1, tt->height - 2);
-
-	if (focused)
-		XftDrawRect(tt->draw, &tt->backgroundHighlight, 1, 1, tt->width - 2, tt->height - 2);
-	else
-		XftDrawRect(tt->draw, &tt->background, 1, 1, tt->width - 2, tt->height - 2);
+	if (!integrated) {
+		XftDrawRect(tt->draw, &tt->border, 0, 0, tt->width, 1);
+		XftDrawRect(tt->draw, &tt->border, 0, 1, 1, tt->height - 2);
+		XftDrawRect(tt->draw, &tt->border, 0, tt->height - 1, tt->width, 1);
+		XftDrawRect(tt->draw, &tt->border, tt->width - 1, 1, 1, tt->height - 2);
+	}
+	int inset = integrated ? 0 : 1;
+	XftDrawRect(tt->draw, focused ? &tt->backgroundHighlight : &tt->background,
+			inset, inset, width - inset * 2, tt->height - inset * 2);
+	if (!visible) return;
 
 	pictw_t *icon = tooltip_icon(tt);
-	int base_x = 4 - tt->extents.x;
+	int left = 0;
+	if (integrated && tt->mainwin->ps->o.tooltip_align == ALIGN_MID) left = (width - tt->width) / 2;
+	if (integrated && tt->mainwin->ps->o.tooltip_align == ALIGN_RIGHT) left = width - tt->width;
+	int base_x = left + 4 - tt->extents.x;
 	int base_y = 2 + ((int)tt->height - 5 - tt->extents.height) / 2 - tt->extents.y;
 	if (icon) {
 		XRenderComposite(tt->mainwin->ps->dpy, PictOpOver, icon->pict, None,
-				XftDrawPicture(tt->draw), 0, 0, 0, 0, 4,
+				XftDrawPicture(tt->draw), 0, 0, 0, 0, left + 4,
 				((int)tt->height - icon->height) / 2, icon->width, icon->height);
 		base_x += icon->width + 6;
 	}

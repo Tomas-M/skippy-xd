@@ -1725,6 +1725,8 @@ skippy_activate(MainWin *mw, Window leader)
 		cw->paneltype = wm_identify_panel(ps, cw->src.window);
 		if (cw->paneltype == WINTYPE_PANEL || cw->paneltype == WINTYPE_DESKTOP)
 			clientwin_update2(cw);
+		cw->caption_target = cw->caption_height = 0;
+		if (cw->paneltype == WINTYPE_WINDOW && cw->tooltip) clientwin_tooltip(cw);
 	}
 
 	if (ps->o.mode == PROGMODE_PAGING) {
@@ -1757,10 +1759,21 @@ skippy_activate(MainWin *mw, Window leader)
 				windows = dlist_dup(mw->clientondesktop);
 
 			unsigned int newwidth = 100, newheight = 100;
-			layout_run(mw, windows, mw->monitor[i], layout, &newwidth, &newheight);
-			init_multiplier(mw, mw->monitor[i],
-					newwidth, newheight, mw->ps->o.upscaleWindows, 2,
-					&mw->multiplier[i], &mw->xoff[i], &mw->yoff[i]);
+			float caption_scale = 1.0f;
+			while (true) {
+				layout_run(mw, windows, mw->monitor[i], layout, caption_scale, &newwidth, &newheight);
+				init_multiplier(mw, mw->monitor[i], newwidth, newheight,
+						mw->ps->o.upscaleWindows, 2, &mw->multiplier[i], &mw->xoff[i], &mw->yoff[i]);
+				bool fits = true;
+				foreach_dlist(windows) {
+					ClientWin *cw = iter->data;
+					int required = cw->src.height + ceilf(cw->caption_target / mw->multiplier[i]);
+					if (required > cw->layout_height) fits = false;
+				}
+				if (fits) break;
+				// Fixed-size text must still fit after the preview scale is known.
+				caption_scale = MIN(caption_scale * 0.8f, mw->multiplier[i] * 0.98f);
+			}
 
 			foreach_dlist(windows) {
 				ClientWin *cw = iter->data;
@@ -1771,7 +1784,7 @@ skippy_activate(MainWin *mw, Window leader)
 				if (cw->paneltype != WINTYPE_PANEL && cw->paneltype != WINTYPE_DESKTOP)
 					clientwin_update2(cw);
 				cw->src.width = cw->src0.width * mw->multiplier[i];
-				cw->src.height = cw->src0.height * mw->multiplier[i];
+				cw->src.height = cw->src0.height * mw->multiplier[i] + cw->caption_target;
 			}
 			dlist_free(windows);
 		}

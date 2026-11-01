@@ -46,6 +46,9 @@ struct _clientwin_t {
 	pictw_t *icon_pict_filler;
 
 	SkippyWindow mini;
+	Window content_window;
+	int layout_height;
+	int caption_target, caption_height;
 	int pixmap_width, pixmap_height;
 
 	Pixmap pixmap;
@@ -98,6 +101,18 @@ clientwin_get_multiplier(ClientWin *cw) {
 		return mw->multiplier[cw->monitor];
 	return mw->multiplier[mw->active_monitor];
 }
+// The image surface remains independent of the enclosing caption geometry.
+static inline Window
+clientwin_picture_window(ClientWin *cw) {
+	return cw->caption_height ? cw->content_window : cw->mini.window;
+}
+
+// Captions use fixed screen pixels while the source image is scaled.
+static inline int
+clientwin_preview_height(ClientWin *cw) {
+	return cw->mini.height - cw->caption_height;
+}
+
 void clientwin_fill_shape(ClientWin *cw, Drawable drawable, GC gc, int offset, int expand);
 int clientwin_validate_panel(dlist *, void *);
 int clientwin_filter_monitor(dlist *, void *);

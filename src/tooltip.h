@@ -20,28 +20,27 @@
 #ifndef SKIPPY_TOOLTIP_H
 #define SKIPPY_TOOLTIP_H
 
+#include <pango/pangoxft.h>
+
 struct _Tooltip {
 	MainWin *mainwin;
+	const ClientWin *client;
 	
 	unsigned int width, height;
 	
 	Window window;
 	bool mapped;
-	XftFont *font;
+	PangoLayout *layout;
 	XftDraw *draw;
 	XftColor color, background, backgroundHighlight, border, outline;
-	XGlyphInfo extents;
-	int font_height;
-	
-	FcChar8 *text;
-	int text_len;
+	PangoRectangle extents;
 };
 typedef struct _Tooltip Tooltip;
 
 Tooltip *tooltip_create(MainWin *mw);
 void tooltip_destroy(Tooltip *);
 void tooltip_map(Tooltip *tt, ClientWin *cw,
-		FcChar8 *text, int len);
+		const FcChar8 *text, int len);
 void tooltip_unmap(Tooltip *);
 void tooltip_draw(Tooltip *, bool);
 void tooltip_move(Tooltip *tt, ClientWin *cw);

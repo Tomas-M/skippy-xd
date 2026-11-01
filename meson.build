@@ -34,6 +34,7 @@ xdamage_dep = dependency('xdamage')
 xext_dep = dependency('xext')
 xfixes_dep = dependency('xfixes')
 xft_dep = dependency('xft')
+pangoxft_dep = dependency('pangoxft')
 xrender_dep = dependency('xrender')
 
 skippy_deps = [
@@ -44,6 +45,7 @@ skippy_deps = [
   xext_dep,
   xfixes_dep,
   xft_dep,
+  pangoxft_dep,
   xrender_dep,
 ]
 
@@ -149,3 +151,12 @@ dlist_sort_test = executable('test-dlist-sort',
   c_args: ['-UNDEBUG'],
 )
 test('dlist-sort', dlist_sort_test)
+
+# Display-dependent layout tests skip cleanly when no X server is available.
+tooltip_test = executable('test-tooltip',
+  ['tests/tooltip.c', 'src/tooltip.c'],
+  include_directories: include_directories('src'),
+  dependencies: skippy_deps,
+  c_args: ['-UNDEBUG'],
+)
+test('tooltip', tooltip_test)

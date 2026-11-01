@@ -455,6 +455,16 @@ clientwin_update3(ClientWin *cw) {
 	if (!cw->icon_pict && ps->o.iconDefault)
 		cw->icon_pict = clone_pictw(ps, ps->o.iconDefault);
 
+	// Cache a native-size icon for the optional caption independently of overlays.
+	free_pictw(ps, &cw->label_icon);
+	if (ps->o.tooltip_iconSize > 0) {
+		cw->label_icon = simg_load_icon(ps, cw->src.window, ps->o.tooltip_iconSize);
+		if (!cw->label_icon && ps->o.iconDefault)
+			cw->label_icon = simg_postprocess(ps, clone_pictw(ps, ps->o.iconDefault),
+					PICTPOSP_SCALEK, ps->o.tooltip_iconSize, ps->o.tooltip_iconSize,
+					ALIGN_MID, ALIGN_MID, NULL);
+	}
+
 	// Get window icon for filler
 	if (cw->icon_pict_filler)
 		free_pictw(ps, &cw->icon_pict_filler);
@@ -572,6 +582,7 @@ clientwin_destroy(ClientWin *cw, bool destroyed) {
 	cw->pixmap_height = 0;
 	free_pixmap(ps, &cw->cpixmap);
 	free_pictw(ps, &cw->icon_pict);
+	free_pictw(ps, &cw->label_icon);
 	free_pictw(ps, &cw->icon_pict_filler);
 	free_pictw(ps, &cw->icon_pict_filled);
 	free_pictw(ps, &cw->pict_filled);

@@ -52,6 +52,7 @@ jobs:
           extra-build-deps: >-
             libx11-dev
             libxft-dev
+            libpango1.0-dev
             libxrender-dev
             libxcomposite-dev
             libxdamage-dev

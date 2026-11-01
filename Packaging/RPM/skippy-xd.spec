@@ -10,6 +10,7 @@ BuildRequires:  gcc
 BuildRequires:  meson
 BuildRequires:  libX11-devel
 BuildRequires:  libXft-devel
+BuildRequires:  pango-devel
 BuildRequires:  libXrender-devel
 BuildRequires:  libXcomposite-devel
 BuildRequires:  libXdamage-devel

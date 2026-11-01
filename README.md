@@ -50,3 +50,31 @@ And please! If you share our love for skippy-xd, please do:
 * Use it! Nothing is more rewarding to developers than widespread adoption of the app.
 * Share it! Tell others about the app. Showcase screenshots and videos. Package it for your distros.
 * Improve it! Make suggestions on feature improvements. Report bugs and they will be fixed. If you are a coder, start hacking!
+
+## Label fonts in this fork
+
+Labels use PangoXft for font fallback, shaping, bidirectional text and Unicode ellipsization. The build requires the `pangoxft` pkg-config module (`libpango1.0-dev` on Debian, `pango-devel` on Fedora).
+
+Font settings now use Pango descriptions rather than Xft patterns. Specify preferred families separated by commas, followed by an optional style and the point size:
+
+```ini
+[label]
+font = DejaVu Sans,WenQuanYi Micro Hei 11
+```
+
+Install the named fonts to obtain their glyph coverage. Pango also uses the system Fontconfig fallback rules. Titles are plain text, not markup. The full title is retained when it is ellipsized, so widening a preview restores the text.
+
+`meson test -C build` runs the list tests and, when an X display is available, the real tooltip layout/rendering tests. Use `xvfb-run -a meson test -C build --print-errorlogs` for headless testing. The extra CJK assertions run when WenQuanYi Micro Hei is installed.
+
+For a caption above the preview, aligned with its left edge and including a 16 px application icon:
+
+```ini
+[label]
+option = windowTitle
+position = top
+align = left
+iconSize = 16
+width = 1.0
+```
+
+`align` accepts `left`, `mid` or `right`; `iconSize=0` keeps text-only labels. The maximum label width includes the icon, its gap and the text padding, so ellipsized captions fit their previews. Desktop-page labels do not show application icons.

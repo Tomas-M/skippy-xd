@@ -30,7 +30,7 @@ jobs:
         run: |
           dnf install -y \
             rpm-build redhat-rpm-config meson gcc \
-            libX11-devel libXft-devel libXrender-devel \
+            libX11-devel libXft-devel libXrender-devel pango-devel \
             libXcomposite-devel libXdamage-devel libXfixes-devel \
             libXext-devel libXinerama-devel libXrandr-devel libXi-devel \
             libjpeg-turbo-devel giflib-devel libpng-devel \

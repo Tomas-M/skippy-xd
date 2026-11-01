@@ -41,6 +41,7 @@ struct _clientwin_t {
 	Pixmap cpixmap;
 	pictw_t *pict_filled;
 	pictw_t *icon_pict;
+	pictw_t *label_icon;
 	pictw_t *icon_pict_filled;
 	pictw_t *icon_pict_filler;
 

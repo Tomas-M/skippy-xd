@@ -13,7 +13,8 @@
 # Colors can be anything XAllocNamedColor can handle
 # (Like "black" or "#000000")
 #
-# Fonts are Xft font descriptions
+# Fonts are Pango descriptions: comma-separated families, style and point size
+# Example: DejaVu Sans,WenQuanYi Micro Hei 11
 #
 # Booleans are "true" or anything but "true" (-> false)
 #
@@ -161,8 +162,12 @@ backgroundTinting = true
 show = all
 option = windowClass
 position = bottom
+# align = left, mid or right; iconSize = 0 disables the application icon
+align = mid
+iconSize = 0
 offsetX = 0
 offsetY = -5
+# Maximum width of the complete label relative to its preview
 width = 0.8
 border = #0e0e0e
 background = #111111
@@ -170,7 +175,7 @@ backgroundHighlight = #999999
 opacity = 196
 text = white
 textOutline = #0e0e0e
-font = fixed-11:weight=bold
+font = Monospace Bold 11
 
 [bindings]
 

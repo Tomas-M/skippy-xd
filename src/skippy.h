@@ -273,6 +273,8 @@ typedef struct {
 	int tooltip_show;
 	int tooltip_option;
 	enum align tooltip_position;
+	enum align tooltip_align;
+	int tooltip_iconSize;
 	int tooltip_offsetX;
 	int tooltip_offsetY;
 	double tooltip_width;
@@ -369,6 +371,8 @@ typedef struct {
 	.tooltip_show = TOOLTIP_SHOW_ALL, \
 	.tooltip_option = 1, \
 	.tooltip_position = ALIGN_RIGHT, \
+	.tooltip_align = ALIGN_MID, \
+	.tooltip_iconSize = 0, \
 	.tooltip_offsetX = 0, \
 	.tooltip_offsetY = -5, \
 	.tooltip_width = 0.8, \

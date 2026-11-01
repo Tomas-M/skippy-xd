@@ -3528,7 +3528,7 @@ load_config_file(session_t *ps)
 		ps->o.updatetooltip |= update_and_flag(config, "label", "backgroundHighlight", "#666666", &ps->o.tooltip_backgroundHighlight);
 		ps->o.updatetooltip |= update_and_flag(config, "label", "text", "white", &ps->o.tooltip_text);
 		ps->o.updatetooltip |= update_and_flag(config, "label", "textOutline", "black", &ps->o.tooltip_textOutline);
-		ps->o.updatetooltip |= update_and_flag(config, "label", "font", "fixed-11:weight=bold", &ps->o.tooltip_font);
+		ps->o.updatetooltip |= update_and_flag(config, "label", "font", "Monospace Bold 11", &ps->o.tooltip_font);
 	}
 	{
 		const char* tooltipshow = config_get(config, "label", "show", "all");
@@ -3551,6 +3551,12 @@ load_config_file(session_t *ps)
 		if (!parse_alignv(ps, sspec, &ps->o.tooltip_position))
 			ps->o.tooltip_position = ALIGN_RIGHT;
 	}
+	{
+		const char *alignment = config_get(config, "label", "align", "mid");
+		if (!parse_align(ps, alignment, &ps->o.tooltip_align))
+			ps->o.tooltip_align = ALIGN_MID;
+	}
+	config_get_int_wrap(config, "label", "iconSize", &ps->o.tooltip_iconSize, 0, INT_MAX);
     config_get_int_wrap(config, "label", "offsetX", &ps->o.tooltip_offsetX, INT_MIN, INT_MAX);
     config_get_int_wrap(config, "label", "offsetY", &ps->o.tooltip_offsetY, INT_MIN, INT_MAX);
     config_get_double_wrap(config, "label", "width", &ps->o.tooltip_width, 0.0, 1.0);

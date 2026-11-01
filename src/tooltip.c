@@ -24,10 +24,8 @@ tooltip_destroy(Tooltip *tt)
 {
 	session_t * const ps = tt->mainwin->ps;
 
-	if(tt->text)
-		free(tt->text);
-	if(tt->font)
-		XftFontClose(ps->dpy, tt->font);
+	if(tt->layout)
+		g_object_unref(tt->layout);
 	if(tt->draw)
 		XftDrawDestroy(tt->draw);
 	if(tt->color.pixel != None)
@@ -65,11 +63,12 @@ tooltip_create(MainWin *mw) {
 	Tooltip *tt = allocchk(malloc(sizeof(Tooltip)));
 	
 	tt->mainwin = mw;
+	tt->client = NULL;
 	tt->window = None;
 	tt->mapped = false;
-	tt->font = 0;
+	tt->width = tt->height = 0;
+	tt->layout = NULL;
 	tt->draw = 0;
-	tt->text = 0;
 	tt->color.pixel = tt->background.pixel = tt->border.pixel = tt->outline.pixel = None;
 	
 	{
@@ -152,16 +151,18 @@ tooltip_create(MainWin *mw) {
 		return 0;
 	}
 	
-	tt->font = XftFontOpenName(ps->dpy, ps->screen, ps->o.tooltip_font);
-	if(! tt->font)
-	{
-		printfef(false, "(): WARNING: Couldn't open Xft font.\n");
-		tooltip_destroy(tt);
-		return 0;
-	}
-	
-	tt->font_height = tt->font->ascent + tt->font->descent;
-	
+	// Pango owns fallback, shaping and truncation; Xft still draws our window.
+	PangoContext *context = pango_font_map_create_context(
+			pango_xft_get_font_map(ps->dpy, ps->screen));
+	tt->layout = pango_layout_new(context);
+	g_object_unref(context);
+	PangoFontDescription *font = pango_font_description_from_string(ps->o.tooltip_font);
+	pango_layout_set_font_description(tt->layout, font);
+	pango_font_description_free(font);
+	pango_layout_set_single_paragraph_mode(tt->layout, TRUE);
+	pango_layout_set_ellipsize(tt->layout, PANGO_ELLIPSIZE_END);
+	pango_layout_set_height(tt->layout, -1);
+
 	// Set tooltip window input region to empty to prevent disgusting
 	// racing situations
 	{
@@ -173,40 +174,52 @@ tooltip_create(MainWin *mw) {
 	return tt;
 }
 
+// Desktop-page labels have no application icon.
+static pictw_t *
+tooltip_icon(Tooltip *tt)
+{
+	if (!tt->client || tt->client->mode == CLIDISP_DESKTOP
+			|| !tt->mainwin->ps->o.tooltip_iconSize) return NULL;
+	return tt->client->label_icon;
+}
+
+// Reuse the shaped layout until the full title or available width changes.
 void
-tooltip_map(Tooltip *tt, ClientWin *cw, FcChar8 *text, int len)
+tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
 {
 	session_t * const ps = tt->mainwin->ps;
-	unsigned int max_width = cw->mini.width * ps->o.tooltip_width;
-	FcChar8 *ptr;
-
-	//if (tt->window)
-		//XUnmapWindow(ps->dpy, tt->window);
-	
-	XftTextExtentsUtf8(ps->dpy, tt->font, text, len, &tt->extents);
-	
-	while (tt->extents.width > max_width && len > 3) {
-		ptr = text + len - 1;
-		*ptr-- = '\0';
-		*ptr-- = '.';
-		*ptr-- = '.';
-		*ptr-- = '.';
-		len--;
-		XftTextExtentsUtf8(ps->dpy, tt->font, text, len, &tt->extents);
+	tt->client = cw;
+	pictw_t *icon = tooltip_icon(tt);
+	int icon_width = icon ? icon->width + 6 : 0;
+	int available = cw->mini.width * ps->o.tooltip_width;
+	int text_width = available - 8 - icon_width;
+	if (text_width < 1) {
+		tooltip_unmap(tt);
+		return;
 	}
-
-	tt->width = tt->extents.width + 8;
-	tt->height = tt->font_height + 5;
-	XResizeWindow(ps->dpy, tt->window, tt->width, tt->height);
+	int max_width = text_width * PANGO_SCALE;
+	const char *previous = pango_layout_get_text(tt->layout);
+	bool changed = strlen(previous) != (size_t)len || memcmp(previous, text, len);
+	if (changed || pango_layout_get_width(tt->layout) != max_width) {
+		pango_layout_set_text(tt->layout, (const char *)text, len);
+		pango_layout_set_width(tt->layout, max_width);
+		PangoRectangle ink, logical;
+		pango_layout_get_pixel_extents(tt->layout, &ink, &logical);
+		// Include overhangs and combining marks as well as the logical line box.
+		tt->extents.x = MIN(ink.x, logical.x);
+		tt->extents.y = MIN(ink.y, logical.y);
+		tt->extents.width = MAX(ink.x + ink.width, logical.x + logical.width) - tt->extents.x;
+		tt->extents.height = MAX(ink.y + ink.height, logical.y + logical.height) - tt->extents.y;
+	}
+	// The icon, spacing, padding and text must all fit inside the preview width.
+	unsigned int width = MIN(available, tt->extents.width + icon_width + 8);
+	unsigned int height = MAX(tt->extents.height, icon ? icon->height : 0) + 5;
+	if (tt->width != width || tt->height != height) {
+		tt->width = width;
+		tt->height = height;
+		XResizeWindow(ps->dpy, tt->window, width, height);
+	}
 	tooltip_move(tt, cw);
-	
-	if(tt->text)
-		free(tt->text);
-	
-	tt->text = (FcChar8 *)malloc(len);
-	memcpy(tt->text, text, len);
-	
-	tt->text_len = len;
 }
 
 void
@@ -216,7 +229,11 @@ tooltip_move(Tooltip *tt, ClientWin *cw) {
 	int x = ps->o.tooltip_offsetX,
 		y = ps->o.tooltip_offsetY;
 
-    x += cw->mini.x + cw->mini.width/2 - tt->width / 2;
+	x += cw->mini.x;
+	if (ps->o.tooltip_align == ALIGN_MID)
+		x += ((int)cw->mini.width - (int)tt->width) / 2;
+	else if (ps->o.tooltip_align == ALIGN_RIGHT)
+		x += (int)cw->mini.width - (int)tt->width;
 	switch (ps->o.tooltip_position) {
 		case ALIGN_LEFT:	// top: label sits above the window
 			y += cw->mini.y - tt->height;
@@ -255,16 +272,13 @@ void
 tooltip_unmap(Tooltip *tt)
 {
 	tooltip_set_visible(tt, false);
-	if(tt->text)
-		free(tt->text);
-	tt->text = 0;
-	tt->text_len = 0;
+	pango_layout_set_text(tt->layout, "", 0);
 }
 
 void
 tooltip_draw(Tooltip *tt, bool focused)
 {
-	if (!tt || !tt->text)
+	if (!tt || !pango_layout_get_text(tt->layout)[0])
 		return;
 
 	// label/show decides whether this label is shown at all
@@ -284,22 +298,27 @@ tooltip_draw(Tooltip *tt, bool focused)
 	else
 		XftDrawRect(tt->draw, &tt->background, 1, 1, tt->width - 2, tt->height - 2);
 
-	int base_x = 4;
-	int base_y = 1 + tt->extents.y + (tt->font_height - tt->extents.y)/2;
+	pictw_t *icon = tooltip_icon(tt);
+	int base_x = 4 - tt->extents.x;
+	int base_y = 2 + ((int)tt->height - 5 - tt->extents.height) / 2 - tt->extents.y;
+	if (icon) {
+		XRenderComposite(tt->mainwin->ps->dpy, PictOpOver, icon->pict, None,
+				XftDrawPicture(tt->draw), 0, 0, 0, 0, 4,
+				((int)tt->height - icon->height) / 2, icon->width, icon->height);
+		base_x += icon->width + 6;
+	}
 
 	if (tt->outline.pixel != None) {
 		for (int dx = -1; dx <= 1; dx++) {
 			for (int dy = -1; dy <= 1; dy++) {
 				if (dx == 0 && dy == 0)
 					continue;
-				XftDrawStringUtf8(tt->draw, &tt->outline, tt->font,
-						base_x + dx, base_y + dy,
-						tt->text, tt->text_len);
+				pango_xft_render_layout(tt->draw, &tt->outline, tt->layout,
+						(base_x + dx) * PANGO_SCALE, (base_y + dy) * PANGO_SCALE);
 			}
 		}
 	}
 
-	XftDrawStringUtf8(tt->draw, &tt->color, tt->font,
-			base_x, base_y,
-			tt->text, tt->text_len);
+	pango_xft_render_layout(tt->draw, &tt->color, tt->layout,
+			base_x * PANGO_SCALE, base_y * PANGO_SCALE);
 }

@@ -210,6 +210,54 @@ int main(void)
 	assert(!tooltip_caption_height(&cw, 1));
 	puts("Integrated top/bottom header geometry and shared-frame checks passed.");
 
+	// Header line insets grow by two pixels on each side without scaling the text.
+	cw.caption_height = 0;
+	ps.o.tooltip_position = ALIGN_LEFT;
+	tooltip_map(tt, &cw, (const FcChar8 *)"Short", 5);
+	int header_height = tt->height;
+	ps.o.tooltip_position = ALIGN_MID;
+	tooltip_map(tt, &cw, (const FcChar8 *)"Short", 5);
+	assert(tt->height + 4 == header_height);
+
+	// Workspace bubbles remain wholly inside their preview and respect live settings.
+	cw.mode = CLIDISP_DESKTOP;
+	cw.mini.width = 320;
+	ps.o.mode = PROGMODE_PAGING;
+	ps.o.tooltip_position = ps.o.tooltip_align = ALIGN_LEFT;
+	ps.o.desktop_label_padding = 5;
+	ps.o.desktop_label_margin = 8;
+	ps.o.desktop_label_radius = 8;
+	const char *workspace = "Workspace 1   Ctrl+F1";
+	tooltip_map(tt, &cw, (const FcChar8 *)workspace, strlen(workspace));
+	tooltip_draw(tt, true);
+	XGetWindowAttributes(ps.dpy, tt->window, &attrs);
+	assert(attrs.x == cw.mini.x + 8 && attrs.y == cw.mini.y + 8);
+	assert(attrs.width <= cw.mini.width - 16 && attrs.height == tt->text_height + 10);
+	Bool bounding, clip;
+	int bx, by, cx, cy;
+	unsigned int bw, bh, clipw, cliph;
+	XShapeQueryExtents(ps.dpy, tt->window, &bounding, &bx, &by, &bw, &bh,
+			&clip, &cx, &cy, &clipw, &cliph);
+	assert(bounding && tt->shape_radius == 8);
+	ps.o.tooltip_position = ps.o.tooltip_align = ALIGN_RIGHT;
+	tooltip_map(tt, &cw, (const FcChar8 *)workspace, strlen(workspace));
+	XGetWindowAttributes(ps.dpy, tt->window, &attrs);
+	assert(attrs.x + attrs.width == cw.mini.x + cw.mini.width - 8);
+	assert(attrs.y + attrs.height == cw.mini.y + cw.mini.height - 8);
+	unsigned int old_height = tt->height;
+	ps.o.desktop_label_padding = 8;
+	ps.o.desktop_label_radius = 0;
+	tooltip_map(tt, &cw, (const FcChar8 *)workspace, strlen(workspace));
+	assert(tt->height == old_height + 6);
+	XShapeQueryExtents(ps.dpy, tt->window, &bounding, &bx, &by, &bw, &bh,
+			&clip, &cx, &cy, &clipw, &cliph);
+	assert(!bounding);
+	cw.mini.width = 20;
+	tooltip_map(tt, &cw, (const FcChar8 *)workspace, strlen(workspace));
+	tooltip_draw(tt, true);
+	assert(!tt->mapped && !tt->width);
+	puts("Header padding and inset workspace bubble padding/radius checks passed.");
+
 	tooltip_unmap(tt);
 	assert(!tt->mapped && !pango_layout_get_text(tt->layout)[0]);
 	tooltip_destroy(tt);

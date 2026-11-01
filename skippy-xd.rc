@@ -158,7 +158,7 @@ backgroundTinting = true
 # option = windowClass to display window class
 # option = windowTitle to display window title
 # Top/bottom application labels are part of the tile; mid overlays the preview.
-# Paging labels remain floating and retain their offsets.
+# Workspace labels overlay the inside of each preview; see [desktop-label].
 [label]
 show = all
 option = windowClass
@@ -178,6 +178,13 @@ opacity = 196
 text = white
 textOutline = #0e0e0e
 font = Monospace Bold 11
+
+# Workspace label bubble: content padding, inset from preview edges and corner radius.
+# All three values use screen pixels; colors and alignment come from [label].
+[desktop-label]
+padding = 4
+margin = 8
+radius = 6
 
 [bindings]
 

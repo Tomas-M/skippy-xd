@@ -68,6 +68,7 @@ tooltip_create(MainWin *mw) {
 	tt->parent = ps->o.pseudoTrans ? mw->window : ps->root;
 	tt->mapped = false;
 	tt->width = tt->height = 0;
+	tt->text_height = tt->shape_width = tt->shape_height = tt->shape_radius = 0;
 	tt->layout = NULL;
 	tt->draw = 0;
 	tt->color.pixel = tt->background.pixel = tt->border.pixel = tt->outline.pixel = None;
@@ -197,6 +198,42 @@ tooltip_caption_height(ClientWin *cw, float scale)
 	return cw->src.width * scale >= minimum ? cw->tooltip->height : 0;
 }
 
+// Application headers gain two pixels above and below the existing line inset.
+static int
+tooltip_padding_y(Tooltip *tt)
+{
+	const ClientWin *cw = tt->client;
+	if (cw->mode == CLIDISP_DESKTOP) return tt->mainwin->ps->o.desktop_label_padding;
+	bool header = cw->paneltype == WINTYPE_WINDOW && tt->mainwin->ps->o.mode != PROGMODE_PAGING;
+	return header && tt->mainwin->ps->o.tooltip_position != ALIGN_MID ? 4 : 2;
+}
+
+// Reuse the workspace bubble's bounding mask across focus and damage redraws.
+static void
+tooltip_shape(Tooltip *tt, int width, int height, int radius)
+{
+	if (tt->shape_width == width && tt->shape_height == height && tt->shape_radius == radius) return;
+	session_t *ps = tt->mainwin->ps;
+	Pixmap mask = None;
+	if (radius) {
+		mask = XCreatePixmap(ps->dpy, tt->window, width, height, 1);
+		GC gc = XCreateGC(ps->dpy, mask, 0, NULL);
+		XSetForeground(ps->dpy, gc, 0);
+		XFillRectangle(ps->dpy, mask, gc, 0, 0, width, height);
+		XSetForeground(ps->dpy, gc, 1);
+		int diameter = radius * 2;
+		XFillRectangle(ps->dpy, mask, gc, radius, 0, width - diameter, height);
+		XFillRectangle(ps->dpy, mask, gc, 0, radius, width, height - diameter);
+		for (int y = 0; y < 2; y++)
+			for (int x = 0; x < 2; x++)
+				XFillArc(ps->dpy, mask, gc, x * (width - diameter), y * (height - diameter), diameter, diameter, 0, 360 * 64);
+		XFreeGC(ps->dpy, gc);
+	}
+	XShapeCombineMask(ps->dpy, tt->window, ShapeBounding, 0, 0, mask, ShapeSet);
+	if (mask) XFreePixmap(ps->dpy, mask);
+	tt->shape_width = width; tt->shape_height = height; tt->shape_radius = radius;
+}
+
 static void tooltip_set_visible(Tooltip *tt, bool visible);
 
 // Normalize and measure the full title before choosing a scale for the tiles.
@@ -216,8 +253,7 @@ tooltip_set_text(Tooltip *tt, const FcChar8 *text, int len)
 		pango_layout_set_width(tt->layout, -1);
 		PangoRectangle ink, logical;
 		pango_layout_get_pixel_extents(tt->layout, &ink, &logical);
-		int height = MAX(ink.y + ink.height, logical.y + logical.height) - MIN(ink.y, logical.y);
-		tt->height = MAX(height, tt->mainwin->ps->o.tooltip_iconSize) + 5;
+		tt->text_height = MAX(ink.y + ink.height, logical.y + logical.height) - MIN(ink.y, logical.y);
 	}
 	g_free(valid);
 	return changed;
@@ -229,11 +265,18 @@ tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
 {
 	tt->client = cw;
 	bool changed = tooltip_set_text(tt, text, len);
+	session_t *ps = tt->mainwin->ps;
+	bool desktop = cw->mode == CLIDISP_DESKTOP;
 	pictw_t *icon = tooltip_icon(tt);
 	int icon_width = icon ? icon->width + 6 : 0;
-	int available = cw->mini.width * tt->mainwin->ps->o.tooltip_width;
-	int text_width = available - 8 - icon_width;
-	if (text_width < 1) {
+	int padding = desktop ? ps->o.desktop_label_padding : 4;
+	tt->height = MAX(tt->text_height, icon ? icon->height : 0) + tooltip_padding_y(tt) * 2 + !desktop;
+	int available = cw->mini.width * ps->o.tooltip_width;
+	if (desktop) available = MIN(available, (int)cw->mini.width - ps->o.desktop_label_margin * 2);
+	int text_width = available - padding * 2 - icon_width;
+	bool too_short = desktop && (int)tt->height > (int)cw->mini.height - ps->o.desktop_label_margin * 2;
+	if (text_width < 1 || too_short) {
+		tt->width = 0;
 		tooltip_set_visible(tt, false);
 		return;
 	}
@@ -247,7 +290,7 @@ tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
 		tt->extents.width = MAX(ink.x + ink.width, logical.x + logical.width) - tt->extents.x;
 		tt->extents.height = MAX(ink.y + ink.height, logical.y + logical.height) - tt->extents.y;
 	}
-	tt->width = MIN(available, tt->extents.width + icon_width + 8);
+	tt->width = MIN(available, tt->extents.width + icon_width + padding * 2);
 	tooltip_move(tt, cw);
 }
 
@@ -269,6 +312,17 @@ tooltip_move(Tooltip *tt, ClientWin *cw) {
 		height = cw->caption_height;
 		if (ps->o.tooltip_position == ALIGN_RIGHT) y = clientwin_preview_height(cw);
 	}
+	else if (cw->mode == CLIDISP_DESKTOP) {
+		int margin = ps->o.desktop_label_margin;
+		x = cw->mini.x + margin;
+		y = cw->mini.y + margin;
+		int free_x = (int)cw->mini.width - margin * 2 - width;
+		int free_y = (int)cw->mini.height - margin * 2 - height;
+		if (ps->o.tooltip_align == ALIGN_MID) x += free_x / 2;
+		else if (ps->o.tooltip_align == ALIGN_RIGHT) x += free_x;
+		if (ps->o.tooltip_position == ALIGN_MID) y += free_y / 2;
+		else if (ps->o.tooltip_position == ALIGN_RIGHT) y += free_y;
+	}
 	else {
 		x = cw->mini.x + ps->o.tooltip_offsetX;
 		if (ps->o.tooltip_align == ALIGN_MID) x += ((int)cw->mini.width - width) / 2;
@@ -281,6 +335,8 @@ tooltip_move(Tooltip *tt, ClientWin *cw) {
 		y = MIN(MAX(0, y), tt->mainwin->y + tt->mainwin->height - height);
 	}
 	XMoveResizeWindow(ps->dpy, tt->window, x, y, MAX(1, width), MAX(1, height));
+	int radius = cw->mode == CLIDISP_DESKTOP ? ps->o.desktop_label_radius : 0;
+	tooltip_shape(tt, MAX(1, width), MAX(1, height), MIN(radius, MIN(width, height) / 2));
 }
 
 // Map or unmap the label window, only when its state actually changes.
@@ -309,7 +365,7 @@ tooltip_unmap(Tooltip *tt)
 void
 tooltip_draw(Tooltip *tt, bool focused)
 {
-	if (!tt || !pango_layout_get_text(tt->layout)[0])
+	if (!tt || !tt->width || !pango_layout_get_text(tt->layout)[0])
 		return;
 
 	// label/show decides whether this label is shown at all
@@ -321,13 +377,14 @@ tooltip_draw(Tooltip *tt, bool focused)
 	if (!visible && !integrated) return;
 	int width = integrated ? tt->client->mini.width : tt->width;
 
-	if (!integrated) {
+	bool desktop = tt->client->mode == CLIDISP_DESKTOP;
+	if (!integrated && !desktop) {
 		XftDrawRect(tt->draw, &tt->border, 0, 0, tt->width, 1);
 		XftDrawRect(tt->draw, &tt->border, 0, 1, 1, tt->height - 2);
 		XftDrawRect(tt->draw, &tt->border, 0, tt->height - 1, tt->width, 1);
 		XftDrawRect(tt->draw, &tt->border, tt->width - 1, 1, 1, tt->height - 2);
 	}
-	int inset = integrated ? 0 : 1;
+	int inset = integrated || desktop ? 0 : 1;
 	XftDrawRect(tt->draw, focused ? &tt->backgroundHighlight : &tt->background,
 			inset, inset, width - inset * 2, tt->height - inset * 2);
 	if (!visible) return;
@@ -336,11 +393,13 @@ tooltip_draw(Tooltip *tt, bool focused)
 	int left = 0;
 	if (integrated && tt->mainwin->ps->o.tooltip_align == ALIGN_MID) left = (width - tt->width) / 2;
 	if (integrated && tt->mainwin->ps->o.tooltip_align == ALIGN_RIGHT) left = width - tt->width;
-	int base_x = left + 4 - tt->extents.x;
-	int base_y = 2 + ((int)tt->height - 5 - tt->extents.height) / 2 - tt->extents.y;
+	int padding_x = desktop ? tt->mainwin->ps->o.desktop_label_padding : 4;
+	int padding_y = tooltip_padding_y(tt);
+	int base_x = left + padding_x - tt->extents.x;
+	int base_y = padding_y + ((int)tt->height - padding_y * 2 - !desktop - tt->extents.height) / 2 - tt->extents.y;
 	if (icon) {
 		XRenderComposite(tt->mainwin->ps->dpy, PictOpOver, icon->pict, None,
-				XftDrawPicture(tt->draw), 0, 0, 0, 0, left + 4,
+				XftDrawPicture(tt->draw), 0, 0, 0, 0, left + padding_x,
 				((int)tt->height - icon->height) / 2, icon->width, icon->height);
 		base_x += icon->width + 6;
 	}

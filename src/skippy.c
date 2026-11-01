@@ -3570,6 +3570,9 @@ load_config_file(session_t *ps)
 			ps->o.tooltip_align = ALIGN_MID;
 	}
 	config_get_int_wrap(config, "label", "iconSize", &ps->o.tooltip_iconSize, 0, INT_MAX);
+	config_get_int_wrap(config, "desktop-label", "padding", &ps->o.desktop_label_padding, 0, 256);
+	config_get_int_wrap(config, "desktop-label", "margin", &ps->o.desktop_label_margin, 0, 256);
+	config_get_int_wrap(config, "desktop-label", "radius", &ps->o.desktop_label_radius, 0, 100);
     config_get_int_wrap(config, "label", "offsetX", &ps->o.tooltip_offsetX, INT_MIN, INT_MAX);
     config_get_int_wrap(config, "label", "offsetY", &ps->o.tooltip_offsetY, INT_MIN, INT_MAX);
     config_get_double_wrap(config, "label", "width", &ps->o.tooltip_width, 0.0, 1.0);

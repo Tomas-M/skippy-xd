@@ -27,6 +27,7 @@ struct _Tooltip {
 	const ClientWin *client;
 	
 	unsigned int width, height;
+	int text_height, shape_width, shape_height, shape_radius;
 	
 	Window window, parent;
 	bool mapped;

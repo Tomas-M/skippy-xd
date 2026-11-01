@@ -166,6 +166,8 @@ position = bottom
 # align = left, mid or right; iconSize = 0 disables the application icon
 align = mid
 iconSize = 0
+# Extra space on every side of application labels, in screen pixels.
+padding = 2
 # Offsets apply to floating labels only.
 offsetX = 0
 offsetY = -5

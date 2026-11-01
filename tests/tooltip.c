@@ -168,7 +168,7 @@ int main(void)
 	unsigned int with_icon = tt->width;
 	cw.mode = CLIDISP_DESKTOP;
 	tooltip_map(tt, &cw, (const FcChar8 *)"Short", 5);
-	assert(tt->width + 22 == with_icon);
+	assert(tt->width + 22 + ps.o.tooltip_padding * 2 == with_icon);
 	cw.mode = CLIDISP_THUMBNAIL;
 	cw.mini.width = 20;
 	tooltip_map(tt, &cw, (const FcChar8 *)plain, strlen(plain));
@@ -210,14 +210,19 @@ int main(void)
 	assert(!tooltip_caption_height(&cw, 1));
 	puts("Integrated top/bottom header geometry and shared-frame checks passed.");
 
-	// Header line insets grow by two pixels on each side without scaling the text.
+	// One setting grows the caption equally on all four sides, including its icon.
 	cw.caption_height = 0;
 	ps.o.tooltip_position = ALIGN_LEFT;
+	ps.o.tooltip_padding = 0;
 	tooltip_map(tt, &cw, (const FcChar8 *)"Short", 5);
-	int header_height = tt->height;
-	ps.o.tooltip_position = ALIGN_MID;
+	int plain_height = tt->height, plain_width = tt->width;
+	ps.o.tooltip_padding = 2;
 	tooltip_map(tt, &cw, (const FcChar8 *)"Short", 5);
-	assert(tt->height + 4 == header_height);
+	assert(tt->height == plain_height + 4 && tt->width == plain_width + 4);
+	ps.o.tooltip_padding = 7;
+	tooltip_map(tt, &cw, (const FcChar8 *)"Short", 5);
+	assert(tt->height == plain_height + 14 && tt->width == plain_width + 14);
+	ps.o.tooltip_padding = 2;
 
 	// Workspace bubbles remain wholly inside their preview and respect live settings.
 	cw.mode = CLIDISP_DESKTOP;

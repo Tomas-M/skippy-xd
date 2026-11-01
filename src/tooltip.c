@@ -194,18 +194,16 @@ tooltip_caption_height(ClientWin *cw, float scale)
 		return 0;
 	if (cw->paneltype != WINTYPE_WINDOW || ps->o.tooltip_position == ALIGN_MID)
 		return 0;
-	int minimum = 9 + (cw->label_icon ? cw->label_icon->width + 6 : 0);
+	int minimum = 9 + ps->o.tooltip_padding * 2 + (cw->label_icon ? cw->label_icon->width + 6 : 0);
 	return cw->src.width * scale >= minimum ? cw->tooltip->height : 0;
 }
 
-// Application headers gain two pixels above and below the existing line inset.
+// One extra inset applies to every side of application captions.
 static int
-tooltip_padding_y(Tooltip *tt)
+tooltip_padding(Tooltip *tt, bool vertical)
 {
-	const ClientWin *cw = tt->client;
-	if (cw->mode == CLIDISP_DESKTOP) return tt->mainwin->ps->o.desktop_label_padding;
-	bool header = cw->paneltype == WINTYPE_WINDOW && tt->mainwin->ps->o.mode != PROGMODE_PAGING;
-	return header && tt->mainwin->ps->o.tooltip_position != ALIGN_MID ? 4 : 2;
+	if (tt->client->mode == CLIDISP_DESKTOP) return tt->mainwin->ps->o.desktop_label_padding;
+	return (vertical ? 2 : 4) + tt->mainwin->ps->o.tooltip_padding;
 }
 
 // Reuse the workspace bubble's bounding mask across focus and damage redraws.
@@ -269,8 +267,8 @@ tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
 	bool desktop = cw->mode == CLIDISP_DESKTOP;
 	pictw_t *icon = tooltip_icon(tt);
 	int icon_width = icon ? icon->width + 6 : 0;
-	int padding = desktop ? ps->o.desktop_label_padding : 4;
-	tt->height = MAX(tt->text_height, icon ? icon->height : 0) + tooltip_padding_y(tt) * 2 + !desktop;
+	int padding = tooltip_padding(tt, false);
+	tt->height = MAX(tt->text_height, icon ? icon->height : 0) + tooltip_padding(tt, true) * 2 + !desktop;
 	int available = cw->mini.width * ps->o.tooltip_width;
 	if (desktop) available = MIN(available, (int)cw->mini.width - ps->o.desktop_label_margin * 2);
 	int text_width = available - padding * 2 - icon_width;
@@ -393,8 +391,8 @@ tooltip_draw(Tooltip *tt, bool focused)
 	int left = 0;
 	if (integrated && tt->mainwin->ps->o.tooltip_align == ALIGN_MID) left = (width - tt->width) / 2;
 	if (integrated && tt->mainwin->ps->o.tooltip_align == ALIGN_RIGHT) left = width - tt->width;
-	int padding_x = desktop ? tt->mainwin->ps->o.desktop_label_padding : 4;
-	int padding_y = tooltip_padding_y(tt);
+	int padding_x = tooltip_padding(tt, false);
+	int padding_y = tooltip_padding(tt, true);
 	int base_x = left + padding_x - tt->extents.x;
 	int base_y = padding_y + ((int)tt->height - padding_y * 2 - !desktop - tt->extents.height) / 2 - tt->extents.y;
 	if (icon) {

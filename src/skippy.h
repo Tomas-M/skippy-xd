@@ -275,6 +275,7 @@ typedef struct {
 	enum align tooltip_position;
 	enum align tooltip_align;
 	int tooltip_iconSize;
+	int tooltip_padding;
 	int desktop_label_padding, desktop_label_margin, desktop_label_radius;
 	int tooltip_offsetX;
 	int tooltip_offsetY;
@@ -374,6 +375,7 @@ typedef struct {
 	.tooltip_position = ALIGN_RIGHT, \
 	.tooltip_align = ALIGN_MID, \
 	.tooltip_iconSize = 0, \
+	.tooltip_padding = 2, \
 	.desktop_label_padding = 4, .desktop_label_margin = 8, .desktop_label_radius = 6, \
 	.tooltip_offsetX = 0, \
 	.tooltip_offsetY = -5, \

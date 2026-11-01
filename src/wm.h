@@ -99,7 +99,6 @@ bool wm_validate_window(session_t *ps, Window wid);
 long wm_get_window_desktop(session_t *ps, Window wid);
 Window wm_get_focused(session_t *ps);
 
-char *wm_wid_get_prop_rstr(session_t *ps, Window wid, Atom prop);
 char *wm_wid_get_prop_utf8(session_t *ps, Window wid, Atom prop);
 bool wm_wid_set_prop_utf8(session_t *ps, Window wid, Atom prop, char *text);
 void wm_wid_set_info(session_t *ps, Window wid, const char *name,

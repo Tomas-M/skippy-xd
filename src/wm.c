@@ -608,14 +608,11 @@ FcChar8 *
 wm_get_window_title(session_t *ps, Window wid, int *length_return) {
 	char *ret = NULL;
 
-	// wm_wid_get_prop_utf8() is certainly more appropriate, yet
-	// I found Xlib failing to interpret CJK characters in WM_NAME with
-	// type STRING, so we have to keep using the old way here.
-	ret = wm_wid_get_prop_rstr(ps, wid, _NET_WM_VISIBLE_NAME);
+	ret = wm_wid_get_prop_utf8(ps, wid, _NET_WM_VISIBLE_NAME);
 	if (!ret)
-		ret = wm_wid_get_prop_rstr(ps, wid, _NET_WM_NAME);
+		ret = wm_wid_get_prop_utf8(ps, wid, _NET_WM_NAME);
 	if (!ret)
-		ret = wm_wid_get_prop_rstr(ps, wid, XA_WM_NAME);
+		ret = wm_wid_get_prop_utf8(ps, wid, XA_WM_NAME);
 	if (ret && length_return)
 		*length_return = strlen(ret);
 
@@ -1038,25 +1035,6 @@ wm_get_focused(session_t *ps) {
 }
 
 /**
- * @brief Get the raw string from a string property.
- */
-char *
-wm_wid_get_prop_rstr(session_t *ps, Window wid, Atom prop) {
-	Atom type_ret = None;
-	int fmt_ret = 0;
-	unsigned long nitems = 0;
-	unsigned long bytes_after_ret = 0;
-	unsigned char *data = NULL;
-	char *ret = NULL;
-	if (Success == XGetWindowProperty(ps->dpy, wid, prop, 0, 128,
-				False, AnyPropertyType, &type_ret, &fmt_ret, &nitems,
-				&bytes_after_ret, &data) && nitems && 8 == fmt_ret)
-		ret = mstrdup((char *) data);
-	sxfree(data);
-	return ret;
-}
-
-/**
  * @brief Get the first string in a UTF-8 string property on a window.
  */
 char *
@@ -1064,11 +1042,18 @@ wm_wid_get_prop_utf8(session_t *ps, Window wid, Atom prop) {
 	XTextProperty text_prop = { };
 	char *ret = NULL;
 	if (XGetTextProperty(ps->dpy, wid, &text_prop, prop)) {
-		char **strlst = NULL;
-		int cstr = 0;
-		Xutf8TextPropertyToTextList(ps->dpy, &text_prop, &strlst, &cstr);
-		if (cstr) ret = mstrdup(strlst[0]);
-		if (strlst) XFreeStringList(strlst);
+		// Preserve UTF-8 mislabeled as STRING; decode genuine ICCCM text encodings.
+		bool utf8_string = text_prop.encoding == XA_STRING
+				&& g_utf8_validate((char *)text_prop.value, text_prop.nitems, NULL);
+		if (text_prop.encoding == XA_UTF8_STRING || utf8_string)
+			ret = mstrdup((char *)text_prop.value);
+		else {
+			char **strlst = NULL;
+			int cstr = 0;
+			Xutf8TextPropertyToTextList(ps->dpy, &text_prop, &strlst, &cstr);
+			if (cstr) ret = mstrdup(strlst[0]);
+			if (strlst) XFreeStringList(strlst);
+		}
 	}
 	sxfree(text_prop.value);
 	return ret;

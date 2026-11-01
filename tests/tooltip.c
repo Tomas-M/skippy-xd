@@ -1,15 +1,12 @@
 #include <assert.h>
+#include <locale.h>
 #include "skippy.h"
 
 bool debuglog = false;
-Atom _NET_WM_WINDOW_TYPE_TOOLTIP;
-
-// Window metadata is independent of layout and does not need a window manager.
-void wm_wid_set_info(session_t *ps, Window window, const char *name, Atom type) {}
-
 // Exercise the real tooltip lifecycle, rendering, Unicode layout and cache.
 int main(void)
 {
+	setlocale(LC_ALL, "");
 	session_t ps = SESSIONT_INIT;
 	ps.dpy = XOpenDisplay(NULL);
 	if (!ps.dpy) {
@@ -19,6 +16,7 @@ int main(void)
 	ps.screen = DefaultScreen(ps.dpy);
 	ps.root = RootWindow(ps.dpy, ps.screen);
 	ps.o.pseudoTrans = false;
+	wm_get_atoms(&ps);
 	MainWin mw = {
 		.ps = &ps, .visual = DefaultVisual(ps.dpy, ps.screen),
 		.colormap = DefaultColormap(ps.dpy, ps.screen),
@@ -44,6 +42,46 @@ int main(void)
 		tooltip_draw(tt, i % 2);
 	}
 	assert(pango_layout_get_serial(tt->layout) == serial);
+
+	// ICCCM COMPOUND_TEXT and Latin-1 titles must be decoded before layout.
+	Window source = XCreateSimpleWindow(ps.dpy, ps.root, 0, 0, 100, 100, 0, 0, 0);
+	char *compound = "Čeština 日本語 中文";
+	XTextProperty property;
+	assert(Xutf8TextListToTextProperty(ps.dpy, &compound, 1,
+			XCompoundTextStyle, &property) == Success);
+	XSetTextProperty(ps.dpy, source, &property, XA_WM_NAME);
+	XFree(property.value);
+	int length;
+	FcChar8 *decoded = wm_get_window_title(&ps, source, &length);
+	assert(decoded && !strcmp((char *)decoded, compound));
+	free(decoded);
+	const char latin1[] = "caf\xe9";
+	XChangeProperty(ps.dpy, source, XA_WM_NAME, XA_STRING, 8,
+			PropModeReplace, (const unsigned char *)latin1, 4);
+	decoded = wm_get_window_title(&ps, source, &length);
+	assert(decoded && !strcmp((char *)decoded, "café"));
+	free(decoded);
+	XChangeProperty(ps.dpy, source, XA_WM_NAME, XA_STRING, 8,
+			PropModeReplace, (const unsigned char *)compound, strlen(compound));
+	decoded = wm_get_window_title(&ps, source, &length);
+	assert(decoded && !strcmp((char *)decoded, compound));
+	free(decoded);
+	char *long_title = g_strnfill(600, 'A');
+	XChangeProperty(ps.dpy, source, XA_WM_NAME, XA_STRING, 8,
+			PropModeReplace, (unsigned char *)long_title, 600);
+	decoded = wm_get_window_title(&ps, source, &length);
+	assert(decoded && length == 600);
+	free(decoded);
+	g_free(long_title);
+	XDestroyWindow(ps.dpy, source);
+	const char malformed[] = "bad \xff title";
+	tooltip_map(tt, &cw, (const FcChar8 *)malformed, strlen(malformed));
+	assert(g_utf8_validate(pango_layout_get_text(tt->layout), -1, NULL));
+	serial = pango_layout_get_serial(tt->layout);
+	tooltip_map(tt, &cw, (const FcChar8 *)malformed, strlen(malformed));
+	assert(pango_layout_get_serial(tt->layout) == serial);
+	tooltip_map(tt, &cw, (const FcChar8 *)plain, strlen(plain));
+	puts("ICCCM encodings, long titles and malformed UTF-8 checks passed.");
 
 	// Narrowing must preserve the original UTF-8 text so widening restores it.
 	cw.mini.width = 80;

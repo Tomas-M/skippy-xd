@@ -197,6 +197,13 @@ tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
 		tooltip_unmap(tt);
 		return;
 	}
+	// Broken UTF8_STRING properties must not warn or invalidate the layout on each draw.
+	char *valid = NULL;
+	if (!g_utf8_validate((const char *)text, len, NULL)) {
+		valid = g_utf8_make_valid((const char *)text, len);
+		text = (const FcChar8 *)valid;
+		len = strlen(valid);
+	}
 	int max_width = text_width * PANGO_SCALE;
 	const char *previous = pango_layout_get_text(tt->layout);
 	bool changed = strlen(previous) != (size_t)len || memcmp(previous, text, len);
@@ -219,6 +226,7 @@ tooltip_map(Tooltip *tt, ClientWin *cw, const FcChar8 *text, int len)
 		tt->height = height;
 		XResizeWindow(ps->dpy, tt->window, width, height);
 	}
+	g_free(valid);
 	tooltip_move(tt, cw);
 }
 

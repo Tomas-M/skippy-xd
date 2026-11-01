@@ -73,7 +73,7 @@ config_parse(const char *config) {
 	int ix = 0, l_ix = 0;
 	dlist *new_config = 0;
 	
-	regcomp(&re_section, "^[[:space:]]*\\[[[:space:]]*([[:alnum:]]*?)[[:space:]]*\\][[:space:]]*$", REG_EXTENDED);
+	regcomp(&re_section, "^[[:space:]]*\\[[[:space:]]*([[:alnum:]_-]+)[[:space:]]*\\][[:space:]]*$", REG_EXTENDED);
 	regcomp(&re_empty, "^[[:space:]]*#|^[[:space:]]*$", REG_EXTENDED);
 	regcomp(&re_entry, "^[[:space:]]*([[:alnum:]]+)[[:space:]]*=[[:space:]]*(.*?)[[:space:]]*$", REG_EXTENDED);
 	

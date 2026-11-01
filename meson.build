@@ -160,3 +160,12 @@ tooltip_test = executable('test-tooltip',
   c_args: ['-UNDEBUG'],
 )
 test('tooltip', tooltip_test)
+
+# Exercise the actual file parser without requiring a graphical session.
+config_test = executable('test-config',
+  ['tests/config.c', 'src/config.c', 'src/dlist.c'],
+  include_directories: include_directories('src'),
+  dependencies: skippy_deps,
+  c_args: ['-UNDEBUG'],
+)
+test('config', config_test)

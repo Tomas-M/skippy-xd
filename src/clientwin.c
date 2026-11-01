@@ -376,7 +376,7 @@ clientwin_update(ClientWin *cw) {
 		int format = 0;
 		unsigned long nitems = 0, after = 0;
 		unsigned char *data = NULL;
-		if (Success == XGetWindowProperty(ps->dpy, cw->wid_client,
+		if (Success == XGetWindowProperty(ps->dpy, cw->src.window,
 					gtk_frame_extents, 0, 4, False, XA_CARDINAL,
 					&type, &format, &nitems, &after, &data)
 				&& data && format == 32 && nitems == 4) {
